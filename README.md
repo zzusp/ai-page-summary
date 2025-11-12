@@ -44,7 +44,7 @@
 1. **克隆或下载项目**
    ```bash
    git clone <repository-url>
-   cd ai_page_summary
+   cd ai-page-summary
    ```
 
 2. **打开 Chrome 扩展管理页面**
