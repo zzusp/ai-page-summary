@@ -1,0 +1,1242 @@
+// 内容脚本 - 从网页提取主要内容
+class ContentExtractor {
+  constructor() {
+    this.init();
+  }
+
+  // 初始化
+  init() {
+    // 监听来自popup的消息
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      try {
+        switch (message.action) {
+          case 'ping':
+            console.log('Content script received ping request');
+            sendResponse({ success: true, message: 'Content script is ready' });
+            break;
+            
+          case 'extractContent':
+            console.log('Content script received extractContent request');
+            // 确保页面完全加载
+            this.waitForPageReady().then(() => {
+              return this.extractContent();
+            }).then(content => {
+              console.log('Content extraction completed:', content);
+              sendResponse(content);
+            }).catch(error => {
+              console.error('Content extraction error:', error);
+              sendResponse({ 
+                success: false, 
+                error: `内容提取失败: ${error.message}`,
+                details: error.toString()
+              });
+            });
+            break;
+            
+          default:
+            sendResponse({ success: false, error: 'Unknown action' });
+        }
+      } catch (error) {
+        console.error('Content script message handling error:', error);
+        sendResponse({ 
+          success: false, 
+          error: `消息处理失败: ${error.message}`,
+          details: error.toString()
+        });
+      }
+      return true; // 保持消息通道开放
+    });
+    
+    // 标记content script已加载
+    console.log('Content script initialized successfully');
+  }
+
+  // 检测是否为动态页面（SPA、React、Vue等）
+  isDynamicPage() {
+    const indicators = {
+      hasHistory: !!(window.history && window.history.pushState),
+      hasReact: !!(document.querySelector('[data-reactroot]') || 
+                   document.querySelector('[data-react]') ||
+                   document.querySelector('#root')?.getAttribute('data-reactroot') !== null),
+      hasVue: !!(document.querySelector('[data-vue-app]') || 
+                 document.querySelector('.vue-app') ||
+                 document.querySelector('#app')?.getAttribute('v-app') !== null),
+      hasAngular: !!(document.querySelector('[ng-app]') || 
+                     document.querySelector('[ng-controller]') ||
+                     document.querySelector('[ng-version]')),
+      hasFramework: !!(document.querySelector('[id*="app"]') || 
+                       document.querySelector('[class*="app"]') ||
+                       document.querySelector('[class*="application"]')),
+      hasAjax: !!document.querySelector('[data-ajax]') || !!document.querySelector('[data-xhr]')
+    };
+    
+    const hasAnyFramework = Object.values(indicators).some(v => v);
+    console.log('🔍 动态页面检测:', { ...indicators, isDynamic: hasAnyFramework });
+    return hasAnyFramework;
+  }
+
+  // 增强的页面等待机制
+  waitForPageReady() {
+    return new Promise((resolve, reject) => {
+      console.log('🔄 开始页面加载等待流程...');
+      console.log('📊 初始状态检查:', {
+        readyState: document.readyState,
+        url: window.location.href,
+        title: document.title,
+        hasBody: !!document.body,
+        bodyTextLength: (document.body?.textContent || '').length
+      });
+      
+      const isDynamic = this.isDynamicPage();
+      let networkRequests = 0;
+      let contentChanges = 0;
+      let maxWaitTime = isDynamic ? 8000 : 3000; // 动态页面等待8秒，静态页面3秒
+      let checkCount = 0;
+      
+      // 监控网络请求
+      if (window.performance && window.performance.getEntries) {
+        networkRequests = window.performance.getEntries().length;
+        console.log('🌐 初始网络请求数:', networkRequests);
+      }
+      
+      // 基础页面状态检查
+      const basicReady = () => {
+        return document.readyState === 'complete' && 
+               !!document.body && 
+               (document.body.textContent || '').trim().length > 10;
+      };
+      
+      // 动态内容检查
+      const checkDynamicContent = () => {
+        const currentRequests = window.performance ? window.performance.getEntries().length : 0;
+        const bodyText = (document.body?.textContent || '').trim();
+        const currentLength = bodyText.length;
+        
+        // 监控网络请求变化
+        if (currentRequests > networkRequests) {
+          console.log('📡 检测到新的网络请求:', currentRequests - networkRequests);
+          networkRequests = currentRequests;
+        }
+        
+        // 监控内容变化
+        if (currentLength > 50) {
+          contentChanges++;
+          console.log('📄 内容检测 - 长度:', currentLength, '变化次数:', contentChanges);
+        }
+        
+        return {
+          isNetworkIdle: currentRequests <= networkRequests + 2, // 允许2个额外请求
+          hasMeaningfulContent: currentLength > 100,
+          hasStableContent: contentChanges >= 2 || currentLength > 500
+        };
+      };
+      
+      // 逐步检查机制
+      const checkPageState = () => {
+        checkCount++;
+        console.log(`🔍 页面状态检查 #${checkCount}`);
+        
+        // 基础检查
+        if (basicReady()) {
+          console.log('✅ 基础页面就绪检查通过');
+          
+          // 动态页面需要额外检查
+          if (isDynamic) {
+            const dynamicChecks = checkDynamicContent();
+            if (dynamicChecks.isNetworkIdle && (dynamicChecks.hasMeaningfulContent || dynamicChecks.hasStableContent)) {
+              console.log('✅ 动态页面完全就绪');
+              resolve();
+              return;
+            }
+          } else {
+            console.log('✅ 静态页面就绪');
+            resolve();
+            return;
+          }
+        }
+        
+        // 继续等待
+        if (Date.now() - startTime < maxWaitTime) {
+          setTimeout(checkPageState, 300);
+        } else {
+          console.warn('⚠️ 页面等待超时，强制开始内容提取');
+          console.warn('⏰ 超时详情:', {
+            waitTime: Date.now() - startTime,
+            maxWaitTime,
+            isDynamic,
+            checkCount,
+            finalReadyState: document.readyState,
+            hasBody: !!document.body,
+            bodyLength: (document.body?.textContent || '').length
+          });
+          resolve();
+        }
+      };
+      
+      // 传统事件监听作为备用
+      const onReady = () => {
+        console.log('🎯 传统页面加载事件触发');
+        setTimeout(checkPageState, isDynamic ? 500 : 200);
+        window.removeEventListener('load', onReady);
+        document.removeEventListener('DOMContentLoaded', onReady);
+      };
+      
+      // 启动检查流程
+      const startTime = Date.now();
+      
+      // 立即检查一次
+      if (basicReady()) {
+        console.log('✅ 页面已就绪，立即开始检查');
+        setTimeout(checkPageState, isDynamic ? 500 : 200);
+      } else {
+        console.log('⏳ 页面未就绪，等待加载事件');
+        window.addEventListener('load', onReady);
+        document.addEventListener('DOMContentLoaded', onReady);
+        setTimeout(checkPageState, 1000); // 1秒后开始检查
+      }
+      
+      // 最终超时保护
+      setTimeout(() => {
+        console.warn('🛑 强制超时保护激活');
+        resolve();
+      }, maxWaitTime + 2000);
+    });
+  }
+
+  // 提取页面内容
+  async extractContent() {
+    console.log('========================================');
+    console.log('开始内容提取流程...');
+    console.log('页面URL:', window.location.href);
+    console.log('页面标题:', document.title);
+    console.log('文档状态:', document.readyState);
+    console.log('========================================');
+    
+    try {
+      // 获取页面基本信息
+      const title = document.title || '无标题';
+      const url = window.location.href;
+      console.log('📄 页面信息 - 标题:', title, 'URL:', url);
+      
+      // 检查页面状态
+      if (!document.body) {
+        throw new Error('页面主体不存在');
+      }
+      
+      // 检查页面内容是否可见
+      const bodyContent = document.body.textContent || document.body.innerText || '';
+      console.log('📊 页面内容长度:', bodyContent.length);
+      
+      if (bodyContent.trim().length < 50) {
+        throw new Error('页面内容过少，可能为空白页面或特殊页面');
+      }
+      
+      // 提取主要内容
+      console.log('🔍 提取主要内容中...');
+      const mainContent = this.extractMainContent();
+      console.log('✅ 主要内容提取完成，长度:', mainContent.length);
+      
+      if (!mainContent || mainContent.trim().length === 0) {
+        throw new Error('无法提取到有效内容，请确保页面包含文本内容');
+      }
+      
+      // 提取页面元信息
+      console.log('🏷️ 提取元信息中...');
+      const metaInfo = this.extractMetaInfo();
+      
+      // 计算置信度
+      console.log('📈 计算内容置信度...');
+      const confidence = this.calculateConfidence(mainContent, metaInfo);
+      console.log('📊 内容置信度:', confidence);
+      
+      const result = {
+        success: true,
+        title: title,
+        url: url,
+        content: mainContent,
+        metaInfo: metaInfo,
+        confidence: confidence,
+        timestamp: Date.now(),
+        extractionMethod: 'intelligent',
+        wordCount: mainContent.split(/\s+/).length
+      };
+      
+      console.log('🎉 内容提取成功完成！');
+      console.log('========================================');
+      return result;
+      
+    } catch (error) {
+      console.error('❌ 主内容提取失败:', error);
+      console.log('🔄 尝试备用提取方法...');
+      
+      // 尝试备用方法
+      try {
+        const fallbackResult = this.fallbackExtract();
+        if (fallbackResult.success) {
+          console.log('✅ 备用提取方法成功！');
+          return fallbackResult;
+        }
+      } catch (fallbackError) {
+        console.error('❌ 备用提取方法也失败:', fallbackError);
+      }
+      
+      // 尝试最后的后备方法
+      console.log('🆘 使用最后的后备方法...');
+      try {
+        const emergencyResult = this.emergencyExtract();
+        if (emergencyResult.success) {
+          console.log('✅ 后备提取方法成功！');
+          return emergencyResult;
+        }
+      } catch (emergencyError) {
+        console.error('❌ 后备提取方法也失败:', emergencyError);
+      }
+      
+      // 智能错误分类和用户指导
+      const errorType = this.determineErrorType(pageAnalysis, error.message);
+      const userMessage = this.getUserFriendlyErrorMessage(errorType, pageAnalysis);
+      const troubleshooting = this.getTroubleshootingSteps(errorType, pageAnalysis);
+      
+      console.error('❌ ========== 内容提取失败 ==========');
+      console.error('错误类型:', errorType);
+      console.error('用户友好消息:', userMessage);
+      console.error('排错步骤:', troubleshooting);
+      console.error('页面分析:', pageAnalysis);
+      console.error('原始错误:', error);
+      
+      return {
+        success: false,
+        error: userMessage,
+        details: `🔍 技术详情:
+错误类型: ${errorType}
+错误消息: ${error.message}
+时间戳: ${new Date().toLocaleString()}
+
+📊 页面信息:
+- URL: ${window.location.href}
+- 标题: ${document.title}
+- 状态: ${document.readyState}
+- 类型: ${pageAnalysis.isDynamic ? '动态页面' : '静态页面'}
+- 文本长度: ${(document.body?.textContent || '').length}
+- iframe数量: ${window.frames.length}
+
+🛠️ 排错建议:
+${troubleshooting}`,
+        timestamp: Date.now(),
+        errorType: errorType,
+        pageAnalysis: pageAnalysis
+      };
+    }
+  }
+
+  // 备用内容提取方法
+  fallbackExtract() {
+    try {
+      const title = document.title || '无标题';
+      const url = window.location.href;
+      
+      // 简单的body文本提取
+      let content = '';
+      
+      if (document.body) {
+        // 尝试多种方法获取文本内容
+        const methods = [
+          () => document.body.textContent || '',
+          () => document.body.innerText || '',
+          () => this.getPageText()
+        ];
+        
+        for (const method of methods) {
+          const text = method();
+          if (text && text.length > content.length) {
+            content = text;
+          }
+        }
+      }
+      
+      // 清理内容
+      content = this.cleanText(content);
+      
+      if (!content || content.length < 50) {
+        throw new Error('无法提取足够的内容');
+      }
+      
+      // 限制长度
+      if (content.length > 10000) {
+        content = content.substring(0, 10000) + '...[内容过长，已截断]';
+      }
+      
+      return {
+        success: true,
+        title: title,
+        url: url,
+        content: content,
+        metaInfo: {
+          title: title,
+          description: '',
+          author: '',
+          publishDate: '',
+          keywords: '',
+          pageType: 'general',
+          language: document.documentElement.lang || 'zh'
+        },
+        confidence: 30, // 较低的置信度，因为是备用方法
+        timestamp: Date.now(),
+        extractionMethod: 'fallback',
+        wordCount: content.split(/\s+/).length
+      };
+    } catch (error) {
+      throw new Error(`备用提取方法失败: ${error.message}`);
+    }
+  }
+
+  // 获取页面文本的备用方法
+  getPageText() {
+    const walker = document.createTreeWalker(
+      document.body,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode: function(node) {
+          // 过滤隐藏元素
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          
+          const style = window.getComputedStyle(parent);
+          if (style.display === 'none' || style.visibility === 'hidden') {
+            return NodeFilter.FILTER_REJECT;
+          }
+          
+          const text = node.textContent.trim();
+          return text.length > 0 ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        }
+      }
+    );
+    
+    let text = '';
+    let node;
+    
+    while (node = walker.nextNode()) {
+      text += node.textContent + ' ';
+    }
+    
+    return text.trim();
+  }
+
+  // 智能错误类型判断
+  determineErrorType(pageAnalysis, errorMessage) {
+    const bodyTextLength = (document.body?.textContent || '').length;
+    
+    if (errorMessage.includes('body元素不存在') || !pageAnalysis.hasBody) {
+      return 'DOM_NOT_READY';
+    }
+    if (errorMessage.includes('DOM查询') || !pageAnalysis.hasQuerySelector) {
+      return 'DOM_API_UNAVAILABLE';
+    }
+    if (bodyTextLength < 20) {
+      return 'CONTENT_TOO_SPARSE';
+    }
+    if (bodyTextLength < 100) {
+      return 'CONTENT_INSUFFICIENT';
+    }
+    if (pageAnalysis.frameCount > 0) {
+      return 'IFRAME_CONTENT_BLOCKED';
+    }
+    if (pageAnalysis.isDynamic && pageAnalysis.readyState !== 'complete') {
+      return 'DYNAMIC_CONTENT_NOT_LOADED';
+    }
+    return 'GENERAL_EXTRACTION_FAILURE';
+  }
+
+  // 获取用户友好的错误消息
+  getUserFriendlyErrorMessage(errorType, pageAnalysis) {
+    const messages = {
+      'DOM_NOT_READY': '页面DOM结构未准备好，请稍等片刻或刷新页面后重试',
+      'DOM_API_UNAVAILABLE': '页面DOM接口不可用，请尝试刷新页面或更换浏览器',
+      'CONTENT_TOO_SPARSE': '页面内容过少，可能是空白页面、加载中或特殊格式页面',
+      'CONTENT_INSUFFICIENT': '页面内容不足，请确保页面已完全加载并包含足够的文本内容',
+      'IFRAME_CONTENT_BLOCKED': '内容位于iframe中，某些安全策略可能阻止了内容提取',
+      'DYNAMIC_CONTENT_NOT_LOADED': '动态页面内容未完全加载，请等待页面稳定后再试',
+      'GENERAL_EXTRACTION_FAILURE': '内容提取失败，请刷新页面后重试'
+    };
+    
+    return messages[errorType] || '内容提取失败，请刷新页面后重试';
+  }
+
+  // 获取排错步骤
+  getTroubleshootingSteps(errorType, pageAnalysis) {
+    const steps = {
+      'DOM_NOT_READY': [
+        '1. 等待页面完全加载（约3-5秒）',
+        '2. 刷新页面（F5）',
+        '3. 关闭其他标签页释放内存',
+        '4. 重新安装扩展程序'
+      ],
+      'DOM_API_UNAVAILABLE': [
+        '1. 刷新页面（F5）',
+        '2. 检查浏览器控制台是否有错误',
+        '3. 尝试其他网站测试扩展',
+        '4. 更新浏览器到最新版本'
+      ],
+      'CONTENT_TOO_SPARSE': [
+        '1. 确认页面已完全加载',
+        '2. 检查是否在登录页面或加载页面',
+        '3. 尝试点击页面内容触发加载',
+        '4. 尝试其他包含文本的页面'
+      ],
+      'CONTENT_INSUFFICIENT': [
+        '1. 等待页面所有内容加载完成',
+        '2. 向下滚动页面加载更多内容',
+        '3. 检查网络连接是否稳定',
+        '4. 尝试在内容丰富的页面上测试'
+      ],
+      'IFRAME_CONTENT_BLOCKED': [
+        '1. 尝试在父页面上使用扩展',
+        '2. 检查是否有内容安全策略限制',
+        '3. 确认iframe是否可跨域访问',
+        '4. 联系网站管理员了解访问政策'
+      ],
+      'DYNAMIC_CONTENT_NOT_LOADED': [
+        '1. 等待动态内容完全加载（可能需要10-30秒）',
+        '2. 与页面交互触发内容加载',
+        '3. 检查网络请求是否完成',
+        '4. 尝试在静态页面上测试扩展'
+      ],
+      'GENERAL_EXTRACTION_FAILURE': [
+        '1. 刷新页面重试（F5）',
+        '2. 检查扩展是否最新版本',
+        '3. 清理浏览器缓存和Cookie',
+        '4. 在隐身模式下测试'
+      ]
+    };
+    
+    return steps[errorType]?.join('\n') || '1. 刷新页面重试\n2. 尝试其他网站\n3. 检查扩展版本\n4. 联系技术支持';
+  }
+
+  // 从iframe提取内容
+  extractFromIframes() {
+    console.log('🖼️ 开始iframe内容提取...');
+    const results = [];
+    
+    try {
+      for (let i = 0; i < window.frames.length; i++) {
+        try {
+          const frame = window.frames[i];
+          const frameDoc = frame.document;
+          const frameTitle = frameDoc.title || `Frame ${i}`;
+          const frameText = frameDoc.body?.textContent || '';
+          
+          if (frameText.trim().length > 50) {
+            console.log(`✅ Frame ${i} 提取成功: ${frameText.length} 字符`);
+            results.push({
+              title: frameTitle,
+              content: this.cleanText(frameText.substring(0, 5000)),
+              source: `iframe_${i}`
+            });
+          }
+        } catch (frameError) {
+          console.warn(`⚠️ Frame ${i} 提取失败: ${frameError.message}`);
+        }
+      }
+      
+      if (results.length > 0) {
+        const combinedContent = results.map(r => `【${r.title}】\n${r.content}`).join('\n\n');
+        return {
+          success: true,
+          title: document.title,
+          url: window.location.href,
+          content: combinedContent,
+          metaInfo: {
+            title: document.title,
+            description: '',
+            author: '',
+            publishDate: '',
+            keywords: '',
+            pageType: 'iframe_content',
+            language: document.documentElement.lang || 'zh'
+          },
+          confidence: 70,
+          timestamp: Date.now(),
+          extractionMethod: 'iframe_extraction',
+          wordCount: combinedContent.split(/\s+/).length,
+          frameCount: results.length
+        };
+      } else {
+        throw new Error('所有iframe内容都不可访问或为空');
+      }
+    } catch (error) {
+      throw new Error(`iframe内容提取失败: ${error.message}`);
+    }
+  }
+
+  // 应急内容提取方法 - 最后的后备方案
+  emergencyExtract() {
+    try {
+      console.log('🆘 使用应急提取方法...');
+      
+      const title = document.title || '无标题';
+      const url = window.location.href;
+      
+      // 最基础的方法：直接获取所有文本
+      let content = '';
+      
+      if (document.body) {
+        // 方法1: 尝试innerText
+        try {
+          content = document.body.innerText || '';
+        } catch (e) {
+          console.warn('innerText方法失败:', e);
+        }
+        
+        // 方法2: 如果内容不够长，尝试textContent
+        if (content.length < 100) {
+          try {
+            const textContent = document.body.textContent || '';
+            if (textContent.length > content.length) {
+              content = textContent;
+            }
+          } catch (e) {
+            console.warn('textContent方法失败:', e);
+          }
+        }
+        
+        // 方法3: 使用最基础的选择器
+        if (content.length < 50) {
+          try {
+            const commonSelectors = ['p', 'div', 'span', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'];
+            let allText = '';
+            
+            for (const selector of commonSelectors) {
+              try {
+                const elements = document.querySelectorAll(selector);
+                elements.forEach(el => {
+                  const text = el.textContent || el.innerText || '';
+                  if (text && text.trim().length > 20) {
+                    allText += text + '\n\n';
+                  }
+                });
+              } catch (e) {
+                console.warn(`选择器${selector}失败:`, e);
+              }
+            }
+            
+            if (allText.length > content.length) {
+              content = allText;
+            }
+          } catch (e) {
+            console.warn('选择器方法失败:', e);
+          }
+        }
+      }
+      
+      // 清理内容
+      content = this.cleanText(content);
+      
+      if (!content || content.length < 20) {
+        throw new Error('无法提取任何有意义的内容');
+      }
+      
+      // 限制长度
+      if (content.length > 8000) {
+        content = content.substring(0, 8000) + '...[内容过长，已截断]';
+      }
+      
+      console.log('✅ 应急提取成功，内容长度:', content.length);
+      
+      return {
+        success: true,
+        title: title,
+        url: url,
+        content: content,
+        metaInfo: {
+          title: title,
+          description: '',
+          author: '',
+          publishDate: '',
+          keywords: '',
+          pageType: 'emergency',
+          language: document.documentElement.lang || 'zh'
+        },
+        confidence: 0.3, // 应急提取的置信度较低
+        timestamp: Date.now(),
+        extractionMethod: 'emergency',
+        wordCount: content.split(/\s+/).length
+      };
+      
+    } catch (error) {
+      console.error('❌ 应急提取失败:', error);
+      throw new Error(`应急提取失败: ${error.message}`);
+    }
+  }
+
+  // 提取主要内容 - 增强版
+  extractMainContent() {
+    console.log('🔍 ========== 开始主要内容提取流程 ==========');
+    
+    // 详细的页面状态分析
+    const pageAnalysis = {
+      url: window.location.href,
+      title: document.title,
+      readyState: document.readyState,
+      hasBody: !!document.body,
+      hasQuerySelector: !!document.querySelector,
+      bodyTextLength: (document.body?.textContent || '').length,
+      bodyInnerTextLength: (document.body?.innerText || '').length,
+      frameCount: window.frames.length,
+      performanceTiming: performance.timing ? {
+        loadTime: performance.timing.loadEventEnd - performance.timing.navigationStart,
+        domReadyTime: performance.timing.domContentLoadedEventEnd - performance.timing.navigationStart
+      } : null,
+      isDynamic: this.isDynamicPage()
+    };
+    
+    console.log('📊 详细页面分析:', pageAnalysis);
+    
+    // 增强的基础检查
+    if (!document.body) {
+      const errorDetails = {
+        type: 'DOM_STRUCTURE_ERROR',
+        message: '页面body元素不存在',
+        pageInfo: pageAnalysis,
+        suggestion: '请确保页面已完全加载，或刷新页面后重试'
+      };
+      console.error('❌ DOM结构错误:', errorDetails);
+      throw new Error(`页面主体不存在: ${errorDetails.message}`);
+    }
+    
+    if (!document.querySelector) {
+      const errorDetails = {
+        type: 'DOM_API_ERROR',
+        message: '页面不支持DOM查询',
+        pageInfo: pageAnalysis
+      };
+      console.error('❌ DOM API错误:', errorDetails);
+      throw new Error(`页面DOM查询不可用: ${errorDetails.message}`);
+    }
+
+    // 更严格的内容检查
+    const bodyText = document.body.textContent || document.body.innerText || '';
+    const bodyHtml = document.body.innerHTML || '';
+    
+    console.log('📄 页面内容分析:', {
+      textContentLength: bodyText.length,
+      innerTextLength: bodyText.length,
+      htmlContentLength: bodyHtml.length,
+      textContentPreview: bodyText.substring(0, 100) + '...',
+      hasImages: document.querySelectorAll('img').length,
+      hasLinks: document.querySelectorAll('a').length,
+      hasParagraphs: document.querySelectorAll('p').length,
+      hasHeadings: document.querySelectorAll('h1,h2,h3,h4,h5,h6').length
+    });
+    
+    if (bodyText.trim().length < 20) {
+      const errorType = this.determineErrorType(pageAnalysis, bodyText);
+      const userMessage = this.getUserFriendlyErrorMessage(errorType, pageAnalysis);
+      
+      console.error('❌ 内容不足错误:', {
+        errorType,
+        textLength: bodyText.length,
+        pageInfo: pageAnalysis,
+        userMessage
+      });
+      
+      throw new Error(userMessage);
+    }
+    
+    // 检查iframe内容
+    if (window.frames.length > 0) {
+      console.log('🖼️ 检测到iframe，分析iframe内容...');
+      return this.extractFromIframes();
+    }
+    
+    // 继续标准提取流程
+    console.log('✅ 基础检查通过，继续标准提取流程...');
+
+    // 优先级列表，按可靠性排序
+    const selectors = [
+      // 标准内容区域
+      'article',
+      '[role="main"]',
+      'main',
+      
+      // 常见的内容容器
+      '.content',
+      '.post-content',
+      '.entry-content',
+      '.article-content',
+      '.post-body',
+      '.article-body',
+      '.story-body',
+      
+      // 新闻类网站
+      '.story-body-text',
+      '.article_text',
+      '.article-body-text',
+      '.article-section',
+      
+      // 技术文档
+      '.documentation-content',
+      '.technical-content',
+      '.readme-content',
+      
+      // 通用内容区域
+      '#content',
+      '#main-content',
+      '#article',
+      '#post',
+      '#story',
+      
+      // 博客和论坛
+      '.post',
+      '.entry',
+      '.article',
+      '.story',
+      '.forum-post',
+      '.comment-content',
+      
+      // 学术和论文
+      '.abstract',
+      '.paper-content',
+      '.research-content',
+      '.thesis-content',
+      
+      // 产品页面
+      '.product-description',
+      '.product-details',
+      '.item-description'
+    ];
+    
+    console.log(`🎯 准备测试 ${selectors.length} 个选择器...`);
+
+    let bestElement = null;
+    let bestScore = 0;
+    let bestText = '';
+    let testedSelectors = 0;
+    let successfulSelectors = 0;
+
+    console.log(`🔄 开始测试 ${selectors.length} 个选择器...`);
+
+    // 尝试每个选择器
+    for (const selector of selectors) {
+      testedSelectors++;
+      console.log(`🔍 测试选择器 ${testedSelectors}/${selectors.length}: "${selector}"`);
+      
+      try {
+        // 确保document.querySelector存在
+        if (typeof document.querySelectorAll !== 'function') {
+          console.warn('querySelectorAll方法不存在');
+          continue;
+        }
+        
+        const elements = document.querySelectorAll(selector);
+        console.log(`   找到 ${elements.length} 个元素`);
+        
+        if (elements.length === 0) {
+          continue;
+        }
+        
+        successfulSelectors++;
+        let elementScore = 0;
+        let bestElementScore = 0;
+        
+        for (let i = 0; i < elements.length; i++) {
+          const element = elements[i];
+          if (!element || !element.textContent) continue;
+          
+          try {
+            const text = this.cleanText(element.textContent || element.innerText || '');
+            if (text.length < 20) continue; // 太短的文本不计入
+          
+            const score = this.calculateContentScore(element, text);
+            elementScore = Math.max(elementScore, score);
+            
+            console.log(`   元素 ${i+1}: 分数=${score}, 文本长度=${text.length}`);
+            
+            if (score > bestScore) {
+              bestScore = score;
+              bestElement = element;
+              bestText = text;
+              console.log(`   🏆 新的最佳元素: ${selector} 分数=${score}`);
+            }
+          } catch (elementError) {
+            console.warn(`   处理元素失败:`, elementError);
+          }
+        }
+        
+        console.log(`   选择器 "${selector}" 最佳元素分数: ${elementScore}`);
+        
+      } catch (selectorError) {
+        console.warn(`❌ 选择器 "${selector}" 失败:`, selectorError);
+        continue;
+      }
+    }
+    
+    console.log(`📊 选择器测试完成: 测试 ${testedSelectors} 个，成功 ${successfulSelectors} 个`);
+
+    // 如果没有找到合适的内容，尝试获取body的主要内容
+    if (!bestElement || bestText.length < 100) {
+      console.log('⚠️ 未找到合适内容，尝试body fallback方法...');
+      console.log('📊 当前最佳内容状态:', {
+        hasElement: !!bestElement,
+        textLength: bestText.length,
+        score: bestScore
+      });
+      
+      try {
+        // 方法1: 直接获取body文本
+        console.log('🔍 尝试直接获取body文本...');
+        const bodyText = this.cleanText(document.body.textContent || document.body.innerText || '');
+        console.log(`📄 原始body文本长度: ${bodyText.length}`);
+        
+        // 方法2: 获取清理后的body文本
+        console.log('🧹 尝试清理后的body文本...');
+        const bodyClone = document.body.cloneNode(true);
+        this.removeUnwantedElements(bodyClone);
+        
+        const cleanBodyText = this.cleanText(bodyClone.textContent || bodyClone.innerText || '');
+        console.log(`✨ 清理后body文本长度: ${cleanBodyText.length}`);
+        
+        // 方法3: 使用备用方法
+        console.log('🆘 尝试备用文本获取方法...');
+        const backupText = this.getPageText();
+        console.log(`🔄 备用方法文本长度: ${backupText.length}`);
+        
+        // 选择最佳文本
+        let selectedText = '';
+        let methodUsed = '';
+        
+        if (cleanBodyText.length > bodyText.length * 0.8 && cleanBodyText.length > backupText.length * 0.7) {
+          selectedText = cleanBodyText;
+          methodUsed = '清理后的body文本';
+        } else if (bodyText.length > backupText.length) {
+          selectedText = bodyText;
+          methodUsed = '原始body文本';
+        } else {
+          selectedText = backupText;
+          methodUsed = '备用方法文本';
+        }
+        
+        console.log(`✅ 选择使用: ${methodUsed}, 长度: ${selectedText.length}`);
+        bestText = selectedText;
+        
+      } catch (bodyError) {
+        console.error('❌ Body提取错误:', bodyError);
+        throw new Error(`body内容提取失败: ${bodyError.message}`);
+      }
+    }
+
+    // 最终验证
+    if (!bestText || bestText.trim().length < 50) {
+      throw new Error('提取的内容过短，无法进行有效总结');
+    }
+
+    // 限制文本长度
+    if (bestText.length > 10000) {
+      bestText = bestText.substring(0, 10000) + '...[内容过长，已截断]';
+      console.log('Content truncated to 10000 characters');
+    }
+
+    console.log(`Main content extraction completed. Final text length: ${bestText.length}`);
+    return bestText;
+  }
+
+  // 计算内容得分
+  calculateContentScore(element, text) {
+    if (!text || text.length < 50) return 0;
+
+    let score = 0;
+    
+    // 基础长度得分
+    score += Math.min(text.length / 10, 1000);
+    
+    // 段落结构得分
+    const paragraphs = text.split('\n').filter(p => p.trim().length > 20);
+    score += paragraphs.length * 10;
+    
+    // 标点符号密度得分
+    const punctuationDensity = (text.match(/[。！？.!?]/g) || []).length / text.length;
+    score += punctuationDensity * 100;
+    
+    // 位置得分（主要内容通常在页面中部偏下）
+    const rect = element.getBoundingClientRect();
+    const pageHeight = document.documentElement.scrollHeight;
+    const position = (rect.top + rect.height / 2) / pageHeight;
+    if (position > 0.3 && position < 0.8) {
+      score += 100;
+    }
+    
+    // 特殊标记得分
+    const tagName = element.tagName.toLowerCase();
+    if (['article', 'main', 'section'].includes(tagName)) {
+      score += 200;
+    }
+    
+    // 排除常见的不相关元素
+    const excludeClasses = ['nav', 'menu', 'header', 'footer', 'sidebar', 'ad', 'advertisement', 'comment', 'social'];
+    const elementClasses = (element.className || '').toLowerCase();
+    const excludeId = ['nav', 'menu', 'header', 'footer', 'sidebar', 'ad', 'advertisement', 'comment', 'social'];
+    const elementId = (element.id || '').toLowerCase();
+    
+    if (excludeClasses.some(cls => elementClasses.includes(cls)) ||
+        excludeId.some(id => elementId.includes(id))) {
+      score -= 500;
+    }
+
+    return score;
+  }
+
+  // 移除不需要的元素
+  removeUnwantedElements(element) {
+    try {
+      if (!element) {
+        console.warn('removeUnwantedElements: element is null or undefined');
+        return;
+      }
+
+      const unwantedSelectors = [
+        // 导航相关
+        'nav', 'header', 'footer', '.nav', '.header', '.footer',
+        'nav[role="navigation"]', 'nav[aria-label]',
+        
+        // 广告
+        '.ad', '.ads', '.advertisement', '.adsbygoogle',
+        '[id*="ad"]', '[class*="ad"]', '[id*="advertisement"]',
+        
+        // 社交分享
+        '.share', '.social-share', '.social-media',
+        '[class*="share"]', '[class*="social"]',
+        
+        // 侧边栏
+        'aside', '.sidebar', '.side-bar', '.aside',
+        
+        // 评论系统
+        '.comment', '.comments', '.comment-section',
+        '.reply', '.replies',
+        
+        // 搜索框和表单
+        'form', '.search', '.search-box', '.search-form',
+        'input[type="search"]', 'input[type="text"]',
+        
+        // 版权信息
+        '.copyright', '.credit', '.disclaimer',
+        
+        // 其他
+        '.menu', '.breadcrumb', '.pagination',
+        '.tag', '.category', '.related-posts',
+        '.author-bio', '.author-info', '.author-card'
+      ];
+
+      let removedCount = 0;
+      
+      unwantedSelectors.forEach(selector => {
+        try {
+          const elements = element.querySelectorAll(selector);
+          elements.forEach(el => {
+            try {
+              el.remove();
+              removedCount++;
+            } catch (elementError) {
+              console.warn('Error removing element:', elementError);
+            }
+          });
+        } catch (selectorError) {
+          console.warn(`Error with unwanted selector "${selector}":`, selectorError);
+        }
+      });
+
+      // 移除隐藏元素
+      try {
+        const hiddenElements = element.querySelectorAll('*');
+        hiddenElements.forEach(el => {
+          try {
+            if (el && el.parentNode) {
+              const style = window.getComputedStyle(el);
+              if (style && (style.display === 'none' || style.visibility === 'hidden' || 
+                  el.offsetWidth === 0 || el.offsetHeight === 0)) {
+                el.remove();
+                removedCount++;
+              }
+            }
+          } catch (elementError) {
+            console.warn('Error checking hidden element:', elementError);
+          }
+        });
+      } catch (hiddenError) {
+        console.warn('Error removing hidden elements:', hiddenError);
+      }
+
+      // 移除空元素
+      try {
+        const allElements = element.querySelectorAll('*');
+        allElements.forEach(el => {
+          try {
+            if (el && el.parentNode && !el.textContent?.trim() && 
+                !el.querySelector('img') && !el.querySelector('video') && !el.querySelector('iframe')) {
+              el.remove();
+              removedCount++;
+            }
+          } catch (elementError) {
+            console.warn('Error removing empty element:', elementError);
+          }
+        });
+      } catch (emptyError) {
+        console.warn('Error removing empty elements:', emptyError);
+      }
+
+      console.log(`Removed ${removedCount} unwanted elements`);
+    } catch (error) {
+      console.error('Error in removeUnwantedElements:', error);
+      // 不抛出错误，继续处理
+    }
+  }
+
+  // 清理文本
+  cleanText(text) {
+    try {
+      if (!text || typeof text !== 'string') {
+        console.warn('cleanText: invalid text input:', typeof text);
+        return '';
+      }
+
+      let cleaned = text;
+      
+      try {
+        cleaned = cleaned
+          // 移除多余的空白字符
+          .replace(/\s+/g, ' ')
+          // 移除特殊的Unicode字符
+          .replace(/[\u200B-\u200D\uFEFF]/g, '')
+          // 规范化标点符号
+          .replace(/[。]{2,}/g, '...')
+          .replace(/[！]{2,}/g, '!')
+          .replace(/[？]{2,}/g, '?')
+          // 移除过长的重复字符
+          .replace(/(.)\1{10,}/g, '$1$1$1')
+          // 移除可能的代码片段和特殊字符
+          .replace(/```[\s\S]*?```/g, '[代码块]')
+          .replace(/`[^`]*`/g, '[代码]')
+          // 清理
+          .trim();
+      } catch (replaceError) {
+        console.warn('Error during text cleaning:', replaceError);
+        // 基础清理
+        cleaned = text.replace(/\s+/g, ' ').trim();
+      }
+      
+      return cleaned;
+    } catch (error) {
+      console.error('Error in cleanText:', error);
+      return text || '';
+    }
+  }
+
+  // 提取元信息
+  extractMetaInfo() {
+    const meta = {};
+    
+    // 标题
+    meta.title = document.title;
+    
+    // 描述
+    const descriptionMeta = document.querySelector('meta[name="description"]');
+    meta.description = descriptionMeta ? descriptionMeta.content : '';
+    
+    // 作者
+    const authorMeta = document.querySelector('meta[name="author"]');
+    meta.author = authorMeta ? authorMeta.content : '';
+    
+    // 关键词
+    const keywordsMeta = document.querySelector('meta[name="keywords"]');
+    meta.keywords = keywordsMeta ? keywordsMeta.content : '';
+    
+    // 发布日期
+    const dateSelectors = [
+      'meta[property="article:published_time"]',
+      'meta[name="pubdate"]',
+      'meta[name="date"]',
+      '.date', '.published', '.post-date', '.article-date'
+    ];
+    
+    let publishDate = '';
+    for (const selector of dateSelectors) {
+      const element = document.querySelector(selector);
+      if (element) {
+        publishDate = element.content || element.textContent || '';
+        break;
+      }
+    }
+    meta.publishDate = publishDate;
+    
+    // 页面类型
+    meta.pageType = this.detectPageType();
+    
+    // 语言
+    meta.language = document.documentElement.lang || document.querySelector('html')?.getAttribute('lang') || '';
+    
+    return meta;
+  }
+
+  // 检测页面类型
+  detectPageType() {
+    const bodyClasses = document.body.className.toLowerCase();
+    const bodyId = document.body.id.toLowerCase();
+    const title = document.title.toLowerCase();
+    const url = window.location.href.toLowerCase();
+    
+    const types = {
+      'news': ['news', 'article', 'post', 'blog'],
+      'documentation': ['doc', 'documentation', 'api', 'guide', 'tutorial'],
+      'academic': ['research', 'paper', 'study', 'academic'],
+      'product': ['product', 'shop', 'store', 'buy'],
+      'forum': ['forum', 'discussion', 'thread'],
+      'social': ['social', 'profile', 'timeline']
+    };
+    
+    for (const [type, keywords] of Object.entries(types)) {
+      if (keywords.some(keyword => 
+        bodyClasses.includes(keyword) || 
+        bodyId.includes(keyword) || 
+        title.includes(keyword) || 
+        url.includes(keyword)
+      )) {
+        return type;
+      }
+    }
+    
+    return 'general';
+  }
+
+  // 计算置信度
+  calculateConfidence(content, metaInfo) {
+    let confidence = 0;
+    
+    // 内容长度置信度
+    if (content.length > 1000) confidence += 30;
+    else if (content.length > 500) confidence += 20;
+    else if (content.length > 100) confidence += 10;
+    
+    // 段落结构置信度
+    const paragraphs = content.split('\n').filter(p => p.trim().length > 20);
+    if (paragraphs.length > 10) confidence += 25;
+    else if (paragraphs.length > 5) confidence += 15;
+    else if (paragraphs.length > 2) confidence += 10;
+    
+    // 元信息置信度
+    if (metaInfo.description) confidence += 15;
+    if (metaInfo.author) confidence += 10;
+    if (metaInfo.publishDate) confidence += 10;
+    if (metaInfo.keywords) confidence += 5;
+    
+    // 页面类型置信度
+    if (['news', 'documentation', 'academic'].includes(metaInfo.pageType)) {
+      confidence += 15;
+    }
+    
+    // 语言检测置信度
+    if (metaInfo.language) confidence += 5;
+    
+    return Math.min(confidence, 100);
+  }
+}
+
+// 初始化内容提取器
+const contentExtractor = new ContentExtractor();

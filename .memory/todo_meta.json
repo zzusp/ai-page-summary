@@ -1,0 +1,62 @@
+{
+  "todos": {
+    "Coordinator": {
+      "1": {
+        "id": "1",
+        "content": "分析现有扩展架构和用户界面",
+        "details": "1. 检查popup.js和popup.html的当前结构\n2. 分析content.js的内容提取机制\n3. 了解现有的UI组件和样式\n4. 评估现有功能与新功能的集成点",
+        "status": "completed",
+        "priority": "high"
+      },
+      "2": {
+        "id": "2",
+        "content": "设计页面元素选择功能的用户界面",
+        "details": "1. 在弹窗中添加'选择页面元素'按钮\n2. 设计选择模式下的高亮样式\n3. 创建选择状态的用户反馈界面\n4. 添加确认和取消选择的交互",
+        "status": "completed",
+        "priority": "high"
+      },
+      "3": {
+        "id": "3",
+        "content": "实现内容脚本中的DOM元素选择功能",
+        "details": "1. 实现元素悬停高亮效果\n2. 添加元素点击选择逻辑\n3. 记录用户选择的选择器或元素路径\n4. 实现选择模式的进入和退出",
+        "status": "in_progress",
+        "priority": "high"
+      },
+      "4": {
+        "id": "4",
+        "content": "修改内容提取逻辑以支持用户选择",
+        "details": "1. 在content.js中添加选择器支持\n2. 修改extractMainContent函数以优先使用用户选择\n3. 处理选择元素不存在或为空的异常情况\n4. 保持原有的自动提取作为备用方案",
+        "status": "pending",
+        "priority": "high"
+      },
+      "5": {
+        "id": "5",
+        "content": "更新弹窗逻辑以支持选择模式",
+        "details": "1. 修改popup.js以处理选择模式的开启/关闭\n2. 集成选择功能与现有总结功能\n3. 添加选择状态的管理和持久化\n4. 处理选择模式和自动模式之间的切换",
+        "status": "pending",
+        "priority": "high"
+      },
+      "6": {
+        "id": "6",
+        "content": "添加选择功能的样式和用户反馈",
+        "details": "1. 在content.css中添加选择模式样式\n2. 设计高亮元素的选择器样式\n3. 添加选择确认/取消的视觉反馈\n4. 确保样式在不同网站上的兼容性",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "7": {
+        "id": "7",
+        "content": "实现用户指南和错误处理",
+        "details": "1. 添加选择功能的使用说明\n2. 实现错误处理和异常情况提示\n3. 添加功能限制和兼容性说明\n4. 创建测试和验证用例",
+        "status": "pending",
+        "priority": "medium"
+      },
+      "8": {
+        "id": "8",
+        "content": "测试和部署选择功能",
+        "details": "1. 在不同类型的网站上测试选择功能\n2. 验证选择准确性召回率\n3. 测试选择功能与总结功能的集成\n4. 部署到生产环境并创建更新文档",
+        "status": "pending",
+        "priority": "high"
+      }
+    }
+  }
+}

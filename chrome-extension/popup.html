@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智能页面总结器</title>
+  <link rel="stylesheet" href="styles/popup.css">
+  <style>
+    /* 强制设置弹窗最小宽度 */
+    body {
+      width: 500px !important;
+      min-width: 500px !important;
+      max-width: 500px !important;
+    }
+    .container {
+      width: 100% !important;
+      min-width: 500px !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- 头部 -->
+    <header class="header">
+      <div class="header-title">
+        <img src="icons/icon32.png" alt="logo" class="logo">
+        <h1>智能页面总结</h1>
+      </div>
+      <div class="header-actions">
+        <button id="historyBtn" class="icon-btn" title="查看历史记录">
+          <span class="icon">📚</span>
+        </button>
+        <button id="settingsBtn" class="icon-btn" title="设置">
+          <span class="icon">⚙️</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- 状态栏 -->
+    <div class="status-bar" id="statusBar">
+      <div class="status-indicator" id="statusIndicator"></div>
+      <span class="status-text" id="statusText">就绪</span>
+    </div>
+
+    <!-- 选择模式状态区 -->
+    <div class="selection-status" id="selectionStatus" style="display: none;">
+      <div class="selection-header">
+        <span class="selection-icon">📌</span>
+        <span class="selection-title">悬浮选择模式</span>
+        <button id="exitSelectionBtn" class="exit-selection-btn" title="退出选择模式">×</button>
+      </div>
+      <div class="selection-content">
+        <div class="selection-instructions" id="selectionInstructions">
+          悬浮选择窗口已打开，请在页面上选择元素
+        </div>
+        <div class="selected-elements" id="selectedElements">
+          <div class="selected-count">已选择 <span id="selectedCount">0</span> 个元素</div>
+          <div class="selected-list" id="selectedList"></div>
+        </div>
+        <div class="selection-actions">
+          <button id="clearSelectionBtn" class="small-btn">清除选择</button>
+          <button id="viewSelectionBtn" class="secondary-btn small-btn">查看详细</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 悬浮选择结果预览区 -->
+    <div class="floating-selection-preview" id="floatingSelectionPreview" style="display: none;">
+      <div class="preview-header">
+        <span class="preview-icon">📋</span>
+        <span class="preview-title">已选择内容预览</span>
+        <button id="closePreviewBtn" class="close-preview-btn" title="关闭预览">×</button>
+      </div>
+      <div class="preview-content" id="previewContent">
+        <!-- 选择内容将动态显示在这里 -->
+      </div>
+      <div class="preview-actions">
+        <button id="clearPreviewBtn" class="small-btn">清除预览</button>
+      </div>
+    </div>
+
+    <!-- 页面信息 -->
+    <div class="page-info" id="pageInfo">
+      <div class="page-title" id="pageTitle">当前页面</div>
+      <div class="page-url" id="pageUrl">获取中...</div>
+    </div>
+
+    <!-- 总结重点输入区 -->
+    <div class="summary-focus">
+      <label for="focusInput" class="focus-label">
+        <span class="focus-icon">💡</span>
+        <span class="focus-text">总结重点 (可选)</span>
+      </label>
+      <textarea 
+        id="focusInput" 
+        class="focus-input" 
+        placeholder="请输入您希望重点关注的内容，例如：&#10;• 主要功能和特性&#10;• 产品优势和价值&#10;• 技术细节和创新点&#10;• 核心信息和亮点&#10;&#10;提示：先选择页面元素作为总结范围，然后在此输入关注重点&#10;留空将进行通用总结"
+        rows="3"
+        maxlength="500"
+      ></textarea>
+      <div class="focus-hint">
+        <span id="charCount">0</span>/500 字符
+      </div>
+    </div>
+
+    <!-- API配置提示区 -->
+    <div class="api-config-notice" id="apiConfigNotice" style="display: none;">
+      <div class="notice-content">
+        <span class="notice-icon">⚠️</span>
+        <span class="notice-text">请先配置API</span>
+        <button id="goToConfigBtn" class="notice-link-btn">前往配置</button>
+      </div>
+    </div>
+
+    <!-- 主要操作区 -->
+    <div class="main-actions">
+      <button id="summarizeBtn" class="primary-btn">
+        <span class="btn-icon">🔍</span>
+        <span class="btn-text">开始总结</span>
+      </button>
+      <button id="selectElementsBtn" class="select-btn">
+        <span class="btn-icon">📌</span>
+        <span class="btn-text">选择总结范围</span>
+      </button>
+      <button id="clearBtn" class="secondary-btn">
+        <span class="btn-icon">🗑️</span>
+        <span class="btn-text">清除结果</span>
+      </button>
+    </div>
+
+    <!-- 连接测试区 -->
+    <div class="connection-test">
+      <button id="testConnectionBtn" class="test-btn" title="测试扩展连接状态">
+        <span class="btn-icon">🔧</span>
+        <span class="btn-text">测试连接</span>
+      </button>
+    </div>
+
+    <!-- 加载指示器 -->
+    <div class="loading" id="loading" style="display: none;">
+      <div class="spinner"></div>
+      <p>正在分析页面内容...</p>
+      <div class="progress-bar">
+        <div class="progress" id="progressBar"></div>
+      </div>
+    </div>
+
+    <!-- 总结结果 -->
+    <div class="results" id="results" style="display: none;">
+      <div class="results-header">
+        <h3>页面总结</h3>
+        <div class="results-actions">
+          <button id="copyBtn" class="action-btn" title="复制到剪贴板">
+            <span class="icon">📋</span>
+          </button>
+          <button id="exportBtn" class="action-btn" title="导出为文件">
+            <span class="icon">💾</span>
+          </button>
+        </div>
+      </div>
+      <div class="summary-content" id="summaryContent"></div>
+      <div class="results-footer">
+        <div class="confidence-score" id="confidenceScore">
+          <span class="label">置信度:</span>
+          <div class="score-bar">
+            <div class="score-fill" id="scoreFill"></div>
+          </div>
+          <span class="score-text" id="scoreText">--</span>
+        </div>
+        <div class="timestamp" id="timestamp"></div>
+      </div>
+    </div>
+
+    <!-- 错误信息 -->
+    <div class="error-message" id="errorMessage" style="display: none;">
+      <div class="error-icon">⚠️</div>
+      <div class="error-text" id="errorText">出现错误</div>
+      <button id="retryBtn" class="retry-btn">重试</button>
+    </div>
+
+    <!-- 快捷键提示 -->
+    <div class="shortcuts-hint">
+      <details>
+        <summary>快捷键帮助</summary>
+        <div class="shortcuts-list">
+          <div class="shortcut-item">
+            <kbd>Ctrl+Shift+S</kbd>
+            <span>快速总结</span>
+          </div>
+          <div class="shortcut-item">
+            <kbd>Ctrl+Shift+O</kbd>
+            <span>打开设置</span>
+          </div>
+        </div>
+      </details>
+    </div>
+  </div>
+
+  <!-- 历史记录模态框 -->
+  <div class="modal" id="historyModal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>历史记录</h3>
+        <button class="close-btn" id="closeHistoryBtn">×</button>
+      </div>
+      <div class="modal-body" id="historyList">
+        <!-- 历史记录将动态添加到这里 -->
+      </div>
+      <div class="modal-footer">
+        <button id="clearHistoryBtn" class="danger-btn">清空历史</button>
+        <button id="exportHistoryBtn" class="secondary-btn">导出历史</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 使用内置自定义Markdown渲染器，不依赖外部库 -->
+  
+  <script src="js/utils.js"></script>
+  <script src="js/popup.js"></script>
+</body>
+</html>

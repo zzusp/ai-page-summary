@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智能页面总结器 - 设置</title>
+  <link rel="stylesheet" href="styles/options.css">
+</head>
+<body>
+  <div class="container">
+    <!-- 头部 -->
+    <header class="header">
+      <div class="header-content">
+        <img src="icons/icon32.png" alt="logo" class="logo">
+        <div class="header-text">
+          <h1>智能页面总结器</h1>
+          <p>配置你的API设置以开始使用</p>
+        </div>
+      </div>
+    </header>
+
+    <!-- 主要内容 -->
+    <main class="main-content">
+      <!-- API配置区域 -->
+      <section class="config-section">
+        <h2>API 配置</h2>
+        
+        <!-- API提供商选择 -->
+        <div class="form-group">
+          <label for="apiProvider">API 提供商</label>
+          <select id="apiProvider" class="form-control">
+            <option value="openai">OpenAI (GPT)</option>
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="custom">自定义 API</option>
+          </select>
+          <small class="form-help">选择你要使用的大模型服务提供商</small>
+        </div>
+
+        <!-- API密钥 -->
+        <div class="form-group">
+          <label for="apiKey">API 密钥</label>
+          <div class="input-group">
+            <input type="password" id="apiKey" class="form-control" placeholder="请输入你的API密钥">
+            <button type="button" class="btn btn-outline" id="toggleKey">
+              <span class="icon">👁️</span>
+            </button>
+          </div>
+          <small class="form-help">你的API密钥将安全存储在本地</small>
+        </div>
+
+        <!-- API地址 -->
+        <div class="form-group">
+          <label for="apiUrl">API 地址</label>
+          <input type="url" id="apiUrl" class="form-control" placeholder="https://api.openai.com/v1/chat/completions">
+          <small class="form-help">留空将使用默认地址</small>
+        </div>
+
+        <!-- 模型选择 -->
+        <div class="form-group" id="modelGroup">
+          <label for="modelName">模型名称</label>
+          <select id="modelName" class="form-control">
+            <option value="gpt-3.5-turbo">GPT-3.5 Turbo (推荐)</option>
+            <option value="gpt-4">GPT-4</option>
+            <option value="gpt-4-turbo-preview">GPT-4 Turbo</option>
+          </select>
+          <input type="text" id="customModelName" class="form-control" placeholder="输入自定义模型名称 (如: llama-2-70b, qwen-turbo等)" style="display: none;">
+          <small class="form-help" id="modelHelp">选择要使用的模型</small>
+        </div>
+
+        <!-- 高级设置 -->
+        <div class="advanced-section">
+          <details id="advancedDetails">
+            <summary>高级设置</summary>
+            
+            <div class="form-group">
+              <label for="temperature">创造性参数 (Temperature)</label>
+              <div class="range-group">
+                <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.3" class="range-control">
+                <span class="range-value" id="temperatureValue">0.3</span>
+              </div>
+              <small class="form-help">控制输出的随机性，0.3为推荐值</small>
+            </div>
+
+            <div class="form-group">
+              <label for="maxTokens">最大Token数</label>
+              <input type="number" id="maxTokens" class="form-control" min="100" max="4000" value="1500">
+              <small class="form-help">控制总结的最大长度</small>
+            </div>
+
+            <div class="form-group">
+              <label for="summaryLength">总结长度偏好</label>
+              <select id="summaryLength" class="form-control">
+                <option value="short">简洁 (100-200字)</option>
+                <option value="medium" selected>中等 (300-500字)</option>
+                <option value="detailed">详细 (800-1200字)</option>
+              </select>
+              <small class="form-help">控制总结的详细程度</small>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      <!-- 测试区域 -->
+      <section class="test-section">
+        <h2>API 测试</h2>
+        <p>在保存设置前，建议先测试你的API配置是否正确</p>
+        
+        <div class="test-controls">
+          <button id="testApiBtn" class="btn btn-primary">
+            <span class="btn-icon">🔍</span>
+            <span class="btn-text">测试 API</span>
+          </button>
+          <button id="clearTestBtn" class="btn btn-outline">
+            <span class="btn-icon">🗑️</span>
+            <span class="btn-text">清除测试结果</span>
+          </button>
+        </div>
+
+        <div class="test-result" id="testResult" style="display: none;">
+          <div class="result-content" id="testResultContent"></div>
+        </div>
+      </section>
+
+      <!-- 跨设备同步区域 -->
+      <section class="sync-section">
+        <h2>跨设备同步</h2>
+        
+        <!-- 同步状态 -->
+        <div class="sync-status">
+          <div class="status-info">
+            <div class="sync-indicator" id="syncIndicator">
+              <span class="sync-dot" id="syncDot"></span>
+              <span class="sync-text" id="syncText">检查同步状态...</span>
+            </div>
+            <div class="sync-time" id="syncTime"></div>
+          </div>
+        </div>
+
+        <!-- 同步设置 -->
+        <div class="sync-settings">
+          <!-- 历史记录同步开关 -->
+          <div class="form-group">
+            <div class="toggle-group">
+              <label class="toggle-label">
+                <span>历史记录同步</span>
+                <div class="toggle-switch">
+                  <input type="checkbox" id="historySyncToggle" class="toggle-input">
+                  <span class="toggle-slider"></span>
+                </div>
+              </label>
+              <small class="form-help">开启后将在不同设备间同步总结历史记录</small>
+            </div>
+          </div>
+
+          <!-- 记录数量选择器 -->
+          <div class="form-group" id="recordCountGroup" style="display: none;">
+            <label for="recordCount">同步记录数量</label>
+            <select id="recordCount" class="form-control">
+              <option value="20">20条记录</option>
+              <option value="50">50条记录</option>
+              <option value="100">100条记录</option>
+            </select>
+            <small class="form-help">选择要同步的最近记录数量</small>
+          </div>
+
+          <!-- 同步控制按钮 -->
+          <div class="sync-controls">
+            <button id="syncNowBtn" class="btn btn-outline">
+              <span class="btn-icon">🔄</span>
+              <span class="btn-text">立即同步</span>
+            </button>
+            <button id="clearSyncDataBtn" class="btn btn-outline">
+              <span class="btn-icon">🗑️</span>
+              <span class="btn-text">清除同步数据</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 使用说明 -->
+      <section class="help-section">
+        <h2>使用说明</h2>
+        
+        <div class="help-item">
+          <h3>如何获取API密钥？</h3>
+          <div class="help-steps">
+            <div class="step">
+              <span class="step-number">1</span>
+              <div class="step-content">
+                <h4>OpenAI (GPT)</h4>
+                <p>访问 <a href="https://platform.openai.com/" target="_blank">OpenAI Platform</a>，登录后进入API Keys页面创建新密钥。</p>
+              </div>
+            </div>
+            <div class="step">
+              <span class="step-number">2</span>
+              <div class="step-content">
+                <h4>Anthropic (Claude)</h4>
+                <p>访问 <a href="https://console.anthropic.com/" target="_blank">Anthropic Console</a>，创建API密钥。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="help-item">
+          <h3>使用技巧</h3>
+          <ul>
+            <li>使用快捷键 <kbd>Ctrl+Shift+S</kbd> 快速总结当前页面</li>
+            <li>右键点击页面可快速使用总结功能</li>
+            <li>历史记录会自动保存，方便查看之前的总结</li>
+            <li>可导出总结结果为文本文件</li>
+          </ul>
+        </div>
+
+        <div class="help-item">
+          <h3>隐私说明</h3>
+          <p>• 你的API密钥仅存储在本地浏览器中，不会上传到任何服务器</p>
+          <p>• 页面内容仅在你主动点击总结时才会被处理</p>
+          <p>• 总结结果仅保存在你的浏览器历史记录中</p>
+        </div>
+      </section>
+
+      <!-- 操作按钮 -->
+      <div class="actions">
+        <button id="saveBtn" class="btn btn-primary">
+          <span class="btn-icon">💾</span>
+          <span class="btn-text">保存设置</span>
+        </button>
+        <button id="resetBtn" class="btn btn-outline">
+          <span class="btn-icon">🔄</span>
+          <span class="btn-text">重置为默认值</span>
+        </button>
+      </div>
+    </main>
+
+    <!-- 状态栏 -->
+    <footer class="footer">
+      <div class="status-bar" id="statusBar">
+        <div class="status-indicator" id="statusIndicator"></div>
+        <span class="status-text" id="statusText">就绪</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- 模态框 -->
+  <div class="modal" id="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalTitle">提示</h3>
+        <button class="close-btn" id="closeModalBtn">×</button>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <!-- 内容将动态添加 -->
+      </div>
+      <div class="modal-footer" id="modalFooter">
+        <button class="btn btn-primary" id="modalOkBtn">确定</button>
+        <button class="btn btn-outline" id="modalCancelBtn">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/options.js"></script>
+</body>
+</html>
